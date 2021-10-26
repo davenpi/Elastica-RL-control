@@ -5,7 +5,7 @@ environment works with PPO, TD3, DDPG, TRPO and SAC."""
 
 import gym
 from gym import spaces
-
+import numpy as np
 
 import copy
 import sys
@@ -18,6 +18,7 @@ from MuscleTorquesWithBspline.BsplineMuscleTorques import (
 from elastica._calculus import _isnan_check
 from elastica.timestepper import extend_stepper_interface
 from elastica import *
+from elastica.external_forces import GravityForces
 
 # Set base simulator class
 class BaseSimulator(BaseSystemCollection, Constraints, Connections, Forcing, CallBacks):
@@ -324,8 +325,9 @@ class Environment(gym.Env):
         # setting up test params
         n_elem = self.n_elem
         start = np.zeros((3,))
-        direction = np.array([0.0, 1.0, 0.0])  # rod direction: pointing upwards
-        normal = np.array([0.0, 0.0, 1.0])
+        # CHANGE DIRECTION TO POINT DOWN
+        direction = np.array([0.0, -1.0, 0.0])  # rod direction: pointing upwards 
+        normal = np.array([0.0, 0.0, -1.0])
         binormal = np.cross(direction, normal)
 
         density = 1000
@@ -529,6 +531,15 @@ class Environment(gym.Env):
             max_rate_of_change_of_activation=self.max_rate_of_change_of_activation,
             torque_profile_recorder=self.torque_profile_list_for_muscle_in_twist_dir,
         )
+
+        # ADD GRAVITY
+        g = -9.81
+        self.simulator.add_forcing_to(self.shearable_rod).using(
+            GravityForces,
+            acc_gravity = np.array([0, g, 0])
+        )
+
+
 
         # Call back function to collect arm data from simulation
         class ArmMuscleBasisCallBack(CallBackBaseClass):

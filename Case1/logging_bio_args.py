@@ -105,14 +105,16 @@ elif args.algo_name == "SAC":
     offpolicy = True
 
 # Mode 4 corresponds to randomly moving target
-args.mode = 4
+# Mode 1 corresponds to reaching for a fixed target
+args.mode = 1 #4
 
 # Set simulation final time
 final_time = 10
 # Number of control points
 number_of_control_points = 6
 # target position
-target_position = [-0.4, 0.6, 0.2]
+# now trying to approximate the forehead touch
+target_position = [0, 0.5, -0.2] #[-0.4, 0.6, 0.2]
 # learning step skip
 num_steps_per_update = 7
 # alpha and beta spline scaling factors in normal/binormal and tangent directions respectively
