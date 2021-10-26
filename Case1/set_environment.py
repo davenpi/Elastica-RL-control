@@ -326,7 +326,7 @@ class Environment(gym.Env):
         n_elem = self.n_elem
         start = np.zeros((3,))
         # CHANGE DIRECTION TO POINT DOWN
-        direction = np.array([0.0, -1.0, 0.0])  # rod direction: pointing upwards 
+        direction = np.array([0.0, -1.0, 0.0])  # rod direction: pointing downwards 
         normal = np.array([0.0, 0.0, -1.0])
         binormal = np.cross(direction, normal)
 

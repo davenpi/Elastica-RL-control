@@ -113,7 +113,7 @@ final_time = 10
 # Number of control points
 number_of_control_points = 6
 # target position
-# now trying to approximate the forehead touch
+# now trying to approximate the forehead touch position
 target_position = [0, 0.5, -0.2] #[-0.4, 0.6, 0.2]
 # learning step skip
 num_steps_per_update = 7
@@ -127,7 +127,7 @@ max_rate_of_change_of_activation = np.infty
 print("rate of change", max_rate_of_change_of_activation)
 
 # If True, train. Otherwise run trained policy
-args.TRAIN = True
+args.TRAIN = False #True
 
 env = Environment(
     final_time=final_time,
@@ -194,7 +194,7 @@ if args.TRAIN:
 
 else:
     # Use trained policy for the simulation.
-    model = TRPO.load("trpo_" + identifer)
+    model = TRPO.load("policy-TRPO_3d-tracking_id-8000_0.zip")#TRPO.load("trpo_" + identifer)
     obs = env.reset()
 
     done = False
@@ -209,3 +209,4 @@ else:
     env.post_processing(
         filename_video="video-" + identifer + ".mp4", SAVE_DATA=True,
     )
+    # I SHOULD ADD IN THE CODE TO DO 3D VIDEO HERE
