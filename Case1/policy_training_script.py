@@ -6,15 +6,17 @@ from datetime import datetime
 import time
 
 run_onpolicy = True
-run_offpolicy = False #True
-seed_list = [0] #[0, 1, 2, 3, 4]
+run_offpolicy = False  # True
+seed_list = [0]  # [0, 1, 2, 3, 4]
 batchsize_list_offpolicy = [100000, 200000, 500000, 1000000, 2000000]
 algo_list_offpolicy = ["DDPG", "SAC", "TD3"]
 
-batchsize_list_onpolicy = [8000] #[1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
-algo_list_onpolicy = ["TRPO"] #["PPO", "TRPO"]
+batchsize_list_onpolicy = [
+    8000
+]  # [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
+algo_list_onpolicy = ["TRPO"]  # ["PPO", "TRPO"]
 
-timesteps = 10e4 #10.0e6
+timesteps = 10e4  # 10.0e6
 
 run_comand_list = []
 

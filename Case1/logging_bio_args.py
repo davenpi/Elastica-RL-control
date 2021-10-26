@@ -61,19 +61,27 @@ parser = argparse.ArgumentParser()
 
 ########### training and data info ###########
 parser.add_argument(
-    "--total_timesteps", type=float, default=1e6,
+    "--total_timesteps",
+    type=float,
+    default=1e6,
 )
 
 parser.add_argument(
-    "--SEED", type=int, default=0,
+    "--SEED",
+    type=int,
+    default=0,
 )
 
 parser.add_argument(
-    "--timesteps_per_batch", type=int, default=8000,
+    "--timesteps_per_batch",
+    type=int,
+    default=8000,
 )
 
 parser.add_argument(
-    "--algo_name", type=str, default="TRPO",
+    "--algo_name",
+    type=str,
+    default="TRPO",
 )
 
 args = parser.parse_args()
@@ -106,7 +114,7 @@ elif args.algo_name == "SAC":
 
 # Mode 4 corresponds to randomly moving target
 # Mode 1 corresponds to reaching for a fixed target
-args.mode = 1 #4
+args.mode = 1  # 4
 
 # Set simulation final time
 final_time = 10
@@ -114,7 +122,7 @@ final_time = 10
 number_of_control_points = 6
 # target position
 # now trying to approximate the forehead touch position
-target_position = [0, 0.5, -0.2] #[-0.4, 0.6, 0.2]
+target_position = [0, 0.5, -0.2]  # [-0.4, 0.6, 0.2]
 # learning step skip
 num_steps_per_update = 7
 # alpha and beta spline scaling factors in normal/binormal and tangent directions respectively
@@ -127,7 +135,7 @@ max_rate_of_change_of_activation = np.infty
 print("rate of change", max_rate_of_change_of_activation)
 
 # If True, train. Otherwise run trained policy
-args.TRAIN = False #True
+args.TRAIN = False  # True
 
 env = Environment(
     final_time=final_time,
@@ -194,7 +202,9 @@ if args.TRAIN:
 
 else:
     # Use trained policy for the simulation.
-    model = TRPO.load("policy-TRPO_3d-tracking_id-8000_0.zip")#TRPO.load("trpo_" + identifer)
+    model = TRPO.load(
+        "policy-TRPO_3d-tracking_id-8000_0.zip"
+    )  # TRPO.load("trpo_" + identifer)
     obs = env.reset()
 
     done = False
@@ -207,6 +217,7 @@ else:
             break
     print("Final Score:", score)
     env.post_processing(
-        filename_video="video-" + identifer + ".mp4", SAVE_DATA=True,
+        filename_video="video-" + identifer + ".mp4",
+        SAVE_DATA=True,
     )
     # I SHOULD ADD IN THE CODE TO DO 3D VIDEO HERE

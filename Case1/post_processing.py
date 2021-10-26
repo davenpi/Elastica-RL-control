@@ -198,6 +198,7 @@ def plot_video_with_sphere_2D(
         rods_history[rod_idx]["radius"][t_idx],
     )
     # Rod center of mass
+    # BROKEN. NO REFERENCE TO t_idx
     com_history_unpacker = lambda rod_idx, t_idx: rods_history[rod_idx]["com"][time_idx]
 
     # video pre-processing
@@ -211,6 +212,7 @@ def plot_video_with_sphere_2D(
     ylim = kwargs.get("y_limits", (-1.0, 1.0))
     zlim = kwargs.get("z_limits", (-0.05, 1.0))
 
+    # WHAT IS GOING ON HERE?
     difference = lambda x: x[1] - x[0]
     max_axis_length = max(difference(xlim), difference(ylim))
     # The scaling factor from physical space to matplotlib space
@@ -283,3 +285,43 @@ def plot_video_with_sphere_2D(
                     )
 
                 writer.grab_frame()
+
+
+def plot_hist_3d(
+    rods_history: Sequence[Dict],
+    sphere_history: Sequence[Dict],
+    video_name="video_3D.mp4",
+    fps=60,
+    step=1,
+    vis2D=False,
+    **kwargs,
+):
+    """Plot the history of the rod in 3 dimensions"""
+    sim_time = np.array(sphere_history[0]["time"])
+
+    n_visualized_spheres = len(sphere_history)  # should be one for now
+
+    # Sphere info
+    sphere_history_unpacker = lambda sph_idx, t_idx: (
+        sphere_history[sph_idx]["position"][t_idx],
+        sphere_history[sph_idx]["radius"][t_idx],
+    )
+
+    n_visualized_rods = len(rods_history)  # should be one for now
+    # Rod info
+    rod_history_unpacker = lambda rod_idx, t_idx: (
+        rods_history[rod_idx]["position"][t_idx],
+        rods_history[rod_idx]["radius"][t_idx],
+    )
+
+    pass
+
+
+def save_3d_pos_hist(rods_history, sphere_history):
+    """Save the position history to an array"""
+
+    sphere_pos = sphere_history[0]["position"]
+    rod_pos = rods_history[0]["position"]
+
+    np.save("sphere_pos.npy", sphere_pos)
+    np.save("rod_pos.npy", rod_pos)

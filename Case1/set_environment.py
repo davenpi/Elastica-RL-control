@@ -9,7 +9,11 @@ import numpy as np
 
 import copy
 import sys
-from post_processing import plot_video_with_sphere, plot_video_with_sphere_2D
+from post_processing import (
+    plot_video_with_sphere,
+    plot_video_with_sphere_2D,
+    save_3d_pos_hist,
+)
 
 from MuscleTorquesWithBspline.BsplineMuscleTorques import (
     MuscleTorquesWithVaryingBetaSplines,
@@ -326,7 +330,7 @@ class Environment(gym.Env):
         n_elem = self.n_elem
         start = np.zeros((3,))
         # CHANGE DIRECTION TO POINT DOWN
-        direction = np.array([0.0, -1.0, 0.0])  # rod direction: pointing downwards 
+        direction = np.array([0.0, -1.0, 0.0])  # rod direction: pointing downwards
         normal = np.array([0.0, 0.0, -1.0])
         binormal = np.cross(direction, normal)
 
@@ -535,11 +539,8 @@ class Environment(gym.Env):
         # ADD GRAVITY
         g = -9.81
         self.simulator.add_forcing_to(self.shearable_rod).using(
-            GravityForces,
-            acc_gravity = np.array([0, g, 0])
+            GravityForces, acc_gravity=np.array([0, g, 0])
         )
-
-
 
         # Call back function to collect arm data from simulation
         class ArmMuscleBasisCallBack(CallBackBaseClass):
@@ -548,7 +549,9 @@ class Environment(gym.Env):
             """
 
             def __init__(
-                self, step_skip: int, callback_params: dict,
+                self,
+                step_skip: int,
+                callback_params: dict,
             ):
                 CallBackBaseClass.__init__(self)
                 self.every = step_skip
@@ -950,6 +953,10 @@ class Environment(gym.Env):
 
         if self.COLLECT_DATA_FOR_POSTPROCESSING:
 
+            save_3d_pos_hist(
+                [self.post_processing_dict_rod], [self.post_processing_dict_sphere]
+            )
+
             plot_video_with_sphere_2D(
                 [self.post_processing_dict_rod],
                 [self.post_processing_dict_sphere],
@@ -960,15 +967,15 @@ class Environment(gym.Env):
                 **kwargs,
             )
 
-            plot_video_with_sphere(
-                [self.post_processing_dict_rod],
-                [self.post_processing_dict_sphere],
-                video_name="3d_" + filename_video,
-                fps=self.rendering_fps,
-                step=1,
-                vis2D=False,
-                **kwargs,
-            )
+            # plot_video_with_sphere(
+            #     [self.post_processing_dict_rod],
+            #     [self.post_processing_dict_sphere],
+            #     video_name="3d_" + filename_video,
+            #     fps=self.rendering_fps,
+            #     step=1,
+            #     vis2D=False,
+            #     **kwargs,
+            # )
 
             if SAVE_DATA == True:
                 import os
