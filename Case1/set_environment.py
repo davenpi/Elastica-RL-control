@@ -3,8 +3,10 @@ Actuation torques acting on arm can generate torques in normal, binormal and tan
 direction. Environment set in this file is interfaced with stable-baselines and OpenAI Gym. It is shown that this
 environment works with PPO, TD3, DDPG, TRPO and SAC."""
 
+from Case1.MuscleTorqueTanh.TanhMuscleTorque.muscle_torques_with_tanh import MuscleTorquesWithTanh
 import gym
 from gym import spaces
+import numpy as np
 
 
 import copy
@@ -15,14 +17,40 @@ from MuscleTorquesWithBspline.BsplineMuscleTorques import (
     MuscleTorquesWithVaryingBetaSplines,
 )
 
+from MuscleTorqueTanh.TanhMuscleTorque import MuscleTorqueWithTanh
+
 from elastica._calculus import _isnan_check
 from elastica.timestepper import extend_stepper_interface
 from elastica import *
+from elastica.external_forces import GravityForces, MuscleTorques, NoForces
 
 # Set base simulator class
 class BaseSimulator(BaseSystemCollection, Constraints, Connections, Forcing, CallBacks):
     pass
 
+def _batch_matvec(matrix_collection, vector_collection):
+    return np.einsum("ijk,jk->ik", matrix_collection, vector_collection)
+
+class TanhTorques(NoForces):
+
+  """Implementation of torques via front"""
+
+  def __init__(self, amplitude, x_coeff, velocity, direction, rest_lengths):
+    super(TanhTorques, self).__init__()
+    self.amplitude = amplitude
+    self.x_coeff = x_coeff
+    self.velocity = velocity
+    self.direction = direction.reshape(3,1)
+    self.rest_lengths = rest_lengths
+    self.s = np.cumsum(rest_lengths)
+    
+
+  def apply_torques(self, system, time: np.float = 0.0):
+
+    torque_mag = self.amplitude*np.tanh(self.x_coeff*self.s - self.velocity*time)
+    torque = np.einsum("j,ij->ij", torque_mag[::-1], self.direction)
+    system.external_torques[..., 1:] += _batch_matvec(system.director_collection, torque)[..., 1:]
+    system.external_torques[..., :-1] -= _batch_matvec(system.director_collection[..., :-1], torque[..., 1:])
 
 class Environment(gym.Env):
     """
@@ -211,15 +239,6 @@ class Environment(gym.Env):
         self.rendering_fps = 60
         self.step_skip = int(1.0 / (self.rendering_fps * self.time_step))
 
-        # Number of control points
-        self.number_of_control_points = number_of_control_points
-
-        # Actuation torque scaling factor in normal/binormal direction
-        self.alpha = alpha
-
-        # Actuation torque scaling factor in tangent direction
-        self.beta = beta
-
         # target position
         self.target_position = target_position
 
@@ -228,33 +247,18 @@ class Environment(gym.Env):
         self.total_learning_steps = int(self.total_steps / self.num_steps_per_update)
         print("Total learning steps", self.total_learning_steps)
 
-        if self.dim == 2.0:
-            # normal direction activation (2D)
-            self.action_space = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(self.number_of_control_points,),
-                dtype=np.float64,
-            )
-            self.action = np.zeros(self.number_of_control_points)
+        # Now the action space will be a choice of (a, b, v)
+        # just want to actuate in perpindicular to plane for now
         if self.dim == 3.0 or self.dim == 2.5:
-            # normal and/or binormal direction activation (3D)
+            # binormal direction activation (3D) 
             self.action_space = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(2 * self.number_of_control_points,),
+                low=np.array([-0.01, -10, -0.01]),
+                high=np.array([0.01, 10, 0.01]),
+                shape=(3,),
                 dtype=np.float64,
             )
-            self.action = np.zeros(2 * self.number_of_control_points)
-        if self.dim == 3.5:
-            # normal, binormal and/or tangent direction activation (3D)
-            self.action_space = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(3 * self.number_of_control_points,),
-                dtype=np.float64,
-            )
-            self.action = np.zeros(3 * self.number_of_control_points)
+            self.action = np.zeros(3)
+
 
         self.obs_state_points = 10
         num_points = int(n_elem / self.obs_state_points)
@@ -271,21 +275,6 @@ class Environment(gym.Env):
 
         # here we specify 4 tasks that can possibly used
         self.mode = mode
-
-        if self.mode is 2:
-            assert "boundary" in kwargs, "need to specify boundary in mode 2"
-            self.boundary = kwargs["boundary"]
-
-        if self.mode is 3:
-            assert "target_v" in kwargs, "need to specify target_v in mode 3"
-            self.target_v = kwargs["target_v"]
-
-        if self.mode is 4:
-            assert (
-                "boundary" and "target_v" in kwargs
-            ), "need to specify boundary and target_v in mode 4"
-            self.boundary = kwargs["boundary"]
-            self.target_v = kwargs["target_v"]
 
         # Collect data is a boolean. If it is true callback function collects
         # rod parameters defined by user in a list.
@@ -356,22 +345,9 @@ class Environment(gym.Env):
 
         # Now rod is ready for simulation, append rod to simulation
         self.simulator.append(self.shearable_rod)
-        # self.mode = 4
-        if self.mode != 2:
-            # fixed target position to reach
-            target_position = self.target_position
 
-        if self.mode == 2 or self.mode == 4:
-            # random target position to reach with boundary
-            t_x = np.random.uniform(self.boundary[0], self.boundary[1])
-            t_y = np.random.uniform(self.boundary[2], self.boundary[3])
-            if self.dim == 2.0 or self.dim == 2.5:
-                t_z = np.random.uniform(self.boundary[4], self.boundary[5]) * 0
-            elif self.dim == 3.0 or self.dim == 3.5:
-                t_z = np.random.uniform(self.boundary[4], self.boundary[5])
+        target_position = self.target_position
 
-            print("Target position:", t_x, t_y, t_z)
-            target_position = np.array([t_x, t_y, t_z])
 
         # initialize sphere
         self.sphere = Sphere(
@@ -380,125 +356,33 @@ class Environment(gym.Env):
             density=1000,
         )
 
-        if self.mode == 3:
-            self.dir_indicator = 1
-            self.sphere_initial_velocity = self.target_v
-            self.sphere.velocity_collection[..., 0] = [
-                self.sphere_initial_velocity,
-                0.0,
-                0.0,
-            ]
-
-        if self.mode == 4:
-
-            self.trajectory_iteration = 0  # for changing directions
-            self.rand_direction_1 = np.pi * np.random.uniform(0, 2)
-            if self.dim == 2.0 or self.dim == 2.5:
-                self.rand_direction_2 = np.pi / 2.0
-            elif self.dim == 3.0 or self.dim == 3.5:
-                self.rand_direction_2 = np.pi * np.random.uniform(0, 2)
-
-            self.v_x = (
-                self.target_v
-                * np.cos(self.rand_direction_1)
-                * np.sin(self.rand_direction_2)
-            )
-            self.v_y = (
-                self.target_v
-                * np.sin(self.rand_direction_1)
-                * np.sin(self.rand_direction_2)
-            )
-            self.v_z = self.target_v * np.cos(self.rand_direction_2)
-
-            self.sphere.velocity_collection[..., 0] = [
-                self.v_x,
-                self.v_y,
-                self.v_z,
-            ]
-            self.boundaries = np.array(self.boundary)
-
         # Set rod and sphere directors to each other.
         self.sphere.director_collection[
             ..., 0
         ] = self.shearable_rod.director_collection[..., 0]
         self.simulator.append(self.sphere)
 
-        class WallBoundaryForSphere(FreeRod):
-            """
-
-            This class generates a bounded space that sphere can move inside. If sphere
-            hits one of the boundaries (walls) of this space, it is reflected in opposite direction
-            with the same velocity magnitude.
-
-            """
-
-            def __init__(self, boundaries):
-                self.x_boundary_low = boundaries[0]
-                self.x_boundary_high = boundaries[1]
-                self.y_boundary_low = boundaries[2]
-                self.y_boundary_high = boundaries[3]
-                self.z_boundary_low = boundaries[4]
-                self.z_boundary_high = boundaries[5]
-
-            def constrain_values(self, sphere, time):
-                pos_x = sphere.position_collection[0]
-                pos_y = sphere.position_collection[1]
-                pos_z = sphere.position_collection[2]
-
-                radius = sphere.radius
-
-                vx = sphere.velocity_collection[0]
-                vy = sphere.velocity_collection[1]
-                vz = sphere.velocity_collection[2]
-
-                if (pos_x - radius) < self.x_boundary_low:
-                    sphere.velocity_collection[:] = np.array([-vx, vy, vz])
-
-                if (pos_x + radius) > self.x_boundary_high:
-                    sphere.velocity_collection[:] = np.array([-vx, vy, vz])
-
-                if (pos_y - radius) < self.y_boundary_low:
-                    sphere.velocity_collection[:] = np.array([vx, -vy, vz])
-
-                if (pos_y + radius) > self.y_boundary_high:
-                    sphere.velocity_collection[:] = np.array([vx, -vy, vz])
-
-                if (pos_z - radius) < self.z_boundary_low:
-                    sphere.velocity_collection[:] = np.array([vx, vy, -vz])
-
-                if (pos_z + radius) > self.z_boundary_high:
-                    sphere.velocity_collection[:] = np.array([vx, vy, -vz])
-
-            def constrain_rates(self, sphere, time):
-                pass
-
-        if self.mode == 4:
-            self.simulator.constrain(self.sphere).using(
-                WallBoundaryForSphere, boundaries=self.boundaries
-            )
-
-        # Add boundary constraints as fixing one end
-        self.simulator.constrain(self.shearable_rod).using(
-            OneEndFixedRod, constrained_position_idx=(0,), constrained_director_idx=(0,)
-        )
 
         # Add muscle torques acting on the arm for actuation
-        # MuscleTorquesWithVaryingBetaSplines uses the control points selected by RL to
-        # generate torques along the arm.
+        amplitude = 0.001
+        x_coeff = 10
+        velocity = 0.001
+        direction = normal
+        rest_lengths = self.shearable_rod.rest_lengths
+
+        # NEED TO PUT TARGET IN THE Perpendicular PLANE AND THEN ACTUATE BINORMAL
         self.torque_profile_list_for_muscle_in_normal_dir = defaultdict(list)
         self.spline_points_func_array_normal_dir = []
-        # Apply torques
-        self.simulator.add_forcing_to(self.shearable_rod).using(
-            MuscleTorquesWithVaryingBetaSplines,
-            base_length=base_length,
-            number_of_control_points=self.number_of_control_points,
-            points_func_array=self.spline_points_func_array_normal_dir,
-            muscle_torque_scale=self.alpha,
-            direction=str("normal"),
-            step_skip=self.step_skip,
-            max_rate_of_change_of_activation=self.max_rate_of_change_of_activation,
-            torque_profile_recorder=self.torque_profile_list_for_muscle_in_normal_dir,
-        )
+        # self.simulator.add_forcing_to(self.shearable_rod).using(
+        #     TanhTorques,
+        #     amplitude=ampl 
+        # )
+        
+
+
+
+        # MuscleTorquesWithTanh uses the control points selected by RL to
+        # generate torques along the arm.
 
         self.torque_profile_list_for_muscle_in_binormal_dir = defaultdict(list)
         self.spline_points_func_array_binormal_dir = []
@@ -514,21 +398,23 @@ class Environment(gym.Env):
             max_rate_of_change_of_activation=self.max_rate_of_change_of_activation,
             torque_profile_recorder=self.torque_profile_list_for_muscle_in_binormal_dir,
         )
-
-        self.torque_profile_list_for_muscle_in_twist_dir = defaultdict(list)
-        self.spline_points_func_array_twist_dir = []
-        # Apply torques
+        ## LEFT OFF HERE. HOW DO WE ADD IN TORQUE THE RIGHT WAY?
+        self.action_coeff = []
         self.simulator.add_forcing_to(self.shearable_rod).using(
-            MuscleTorquesWithVaryingBetaSplines,
-            base_length=base_length,
-            number_of_control_points=self.number_of_control_points,
-            points_func_array=self.spline_points_func_array_twist_dir,
-            muscle_torque_scale=self.beta,
-            direction=str("tangent"),
-            step_skip=self.step_skip,
-            max_rate_of_change_of_activation=self.max_rate_of_change_of_activation,
-            torque_profile_recorder=self.torque_profile_list_for_muscle_in_twist_dir,
-        )
+            MuscleTorquesWithTanh,
+            rest_lengths=self.shearable_rod.rest_lengths,
+            action_coeffs = self.action_coeff,
+            direction = str("binormal"),
+            step_skip = self.step_skip,
+            max_rate_of_change_of_activation=0.01
+            )
+                    # self,
+                    # rest_lengths,
+                    # action_coeff,
+                    # direction,
+                    # step_skip,
+                    # max_rate_of_change_of_activation=0.01,
+                    # **kwargs,
 
         # Call back function to collect arm data from simulation
         class ArmMuscleBasisCallBack(CallBackBaseClass):
@@ -723,51 +609,19 @@ class Environment(gym.Env):
 
         """
 
-        # action contains the control points for actuation torques in different directions in range [-1, 1]
+        # action contains (a, b, v)
         self.action = action
-
-        # set binormal activations to 0 if solving 2D case
-        if self.dim == 2.0:
-            self.spline_points_func_array_normal_dir[:] = action[
-                : self.number_of_control_points
-            ]
-            self.spline_points_func_array_binormal_dir[:] = (
-                action[: self.number_of_control_points] * 0.0
-            )
-            self.spline_points_func_array_twist_dir[:] = (
-                action[: self.number_of_control_points] * 0.0
-            )
-        elif self.dim == 2.5:
-            self.spline_points_func_array_normal_dir[:] = action[
-                : self.number_of_control_points
-            ]
-            self.spline_points_func_array_binormal_dir[:] = (
-                action[: self.number_of_control_points] * 0.0
-            )
-            self.spline_points_func_array_twist_dir[:] = action[
-                self.number_of_control_points :
-            ]
         # apply binormal activations if solving 3D case
-        elif self.dim == 3.0:
-            self.spline_points_func_array_normal_dir[:] = action[
-                : self.number_of_control_points
-            ]
-            self.spline_points_func_array_binormal_dir[:] = action[
-                self.number_of_control_points :
-            ]
-            self.spline_points_func_array_twist_dir[:] = (
-                action[: self.number_of_control_points] * 0.0
-            )
-        elif self.dim == 3.5:
-            self.spline_points_func_array_normal_dir[:] = action[
-                : self.number_of_control_points
-            ]
-            self.spline_points_func_array_binormal_dir[:] = action[
-                self.number_of_control_points : 2 * self.number_of_control_points
-            ]
-            self.spline_points_func_array_twist_dir[:] = action[
-                2 * self.number_of_control_points :
-            ]
+        if self.dim == 3.0:
+            # self.spline_points_func_array_normal_dir[:] = action[
+            #     : self.number_of_control_points
+            # ]
+            # self.spline_points_func_array_binormal_dir[:] = action[
+            #     : 3 
+            # ]
+            self.action_coeff[:] = action[:3]
+        
+
 
         # Do multiple time step of simulation for <one learning step>
         for _ in range(self.num_steps_per_update):
@@ -778,73 +632,6 @@ class Environment(gym.Env):
                 self.time_tracker,
                 self.time_step,
             )
-
-        if self.mode == 3:
-            ##### (+1, 0, 0) -> (0, -1, 0) -> (-1, 0, 0) -> (0, +1, 0) -> (+1, 0, 0) #####
-            if (
-                self.current_step
-                % (1.0 / (self.h_time_step * self.num_steps_per_update))
-                == 0
-            ):
-                if self.dir_indicator == 1:
-                    self.sphere.velocity_collection[..., 0] = [
-                        0.0,
-                        -self.sphere_initial_velocity,
-                        0.0,
-                    ]
-                    self.dir_indicator = 2
-                elif self.dir_indicator == 2:
-                    self.sphere.velocity_collection[..., 0] = [
-                        -self.sphere_initial_velocity,
-                        0.0,
-                        0.0,
-                    ]
-                    self.dir_indicator = 3
-                elif self.dir_indicator == 3:
-                    self.sphere.velocity_collection[..., 0] = [
-                        0.0,
-                        +self.sphere_initial_velocity,
-                        0.0,
-                    ]
-                    self.dir_indicator = 4
-                elif self.dir_indicator == 4:
-                    self.sphere.velocity_collection[..., 0] = [
-                        +self.sphere_initial_velocity,
-                        0.0,
-                        0.0,
-                    ]
-                    self.dir_indicator = 1
-                else:
-                    print("ERROR")
-
-        if self.mode == 4:
-            self.trajectory_iteration += 1
-            if self.trajectory_iteration == 500:
-                # print('changing direction')
-                self.rand_direction_1 = np.pi * np.random.uniform(0, 2)
-                if self.dim == 2.0 or self.dim == 2.5:
-                    self.rand_direction_2 = np.pi / 2.0
-                elif self.dim == 3.0 or self.dim == 3.5:
-                    self.rand_direction_2 = np.pi * np.random.uniform(0, 2)
-
-                self.v_x = (
-                    self.target_v
-                    * np.cos(self.rand_direction_1)
-                    * np.sin(self.rand_direction_2)
-                )
-                self.v_y = (
-                    self.target_v
-                    * np.sin(self.rand_direction_1)
-                    * np.sin(self.rand_direction_2)
-                )
-                self.v_z = self.target_v * np.cos(self.rand_direction_2)
-
-                self.sphere.velocity_collection[..., 0] = [
-                    self.v_x,
-                    self.v_y,
-                    self.v_z,
-                ]
-                self.trajectory_iteration = 0
 
         self.current_step += 1
 
